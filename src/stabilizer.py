@@ -13,7 +13,6 @@ import kenlm
 model_path = "models/lm_5gram_big.bin"
 model = kenlm.Model(model_path)
 
-
 score = [
     ["Je veux", "Je voeux", "Je voudrais"],
     ["Je veux un", "Je veux une", "voudrais un"],
@@ -25,6 +24,8 @@ score = [
     ["du lait d'amande", "du lait de", "du laie d'amande"],
     ["lait d'amande s'il", "lait d'amande si"],
     ["s'il vous plaît", "s'il vous plait", "si vous plaît"],
+    [""],
+    [""],
 ]
 
 
@@ -34,6 +35,7 @@ def all_combinations(list1, list2, list3, phrase):
     ]
 
 
+# https://www.geeksforgeeks.org/python/python-get-unique-values-list/
 def remove_dupes(combinations):
     t = []
     for i in combinations:
@@ -53,7 +55,9 @@ def give_score(list1, list2, list3, phrase):
             best_score = score
             best_phrase = i
     print(f"Best sentence: {best_phrase}, Score: {best_score}")
-    return best_phrase
+    for i in list1:
+        if i in best_phrase:
+            return i
 
 
 best_phrase = ""
