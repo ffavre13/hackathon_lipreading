@@ -1,6 +1,9 @@
 import itertools
+from pathlib import Path
 
 import kenlm
+
+BASE_DIR = Path(__file__).resolve().parent
 
 # https://huggingface.co/hugohow/5gram-french-kenLM
 
@@ -10,7 +13,7 @@ import kenlm
 #     local_dir="models",
 # )
 
-model_path = "src/stabilizer/models/lm_5gram_big.bin"
+model_path = BASE_DIR / "models" / "lm_5gram_big.bin"
 model = kenlm.Model(model_path)
 
 score = [
@@ -87,7 +90,7 @@ def give_score(list1, list2, list3, current_phrase):
             best_phrase = temp_phrase
             word_f1 = f1
 
-    print(f"Best sentence: {best_phrase}, Score: {best_score}")
+    # print(f"Best sentence: {best_phrase}, Score: {best_score}")
     return word_f1
 
 
