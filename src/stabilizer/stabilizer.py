@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # )
 
 model_path = BASE_DIR / "models" / "lm_5gram_big.bin"
-model = kenlm.Model(model_path)
+model = kenlm.Model(str(model_path))
 
 score = [
     [("Je veux", -3.42), ("Je voeux", -6.81), ("Je voudrais", -3.75)],
