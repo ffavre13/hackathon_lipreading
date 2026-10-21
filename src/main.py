@@ -13,7 +13,7 @@ def main():
     
     vid = cv2.VideoCapture(str(video_path))
     frames = []
-
+    
     while vid.isOpened():
         ret, frame = vid.read()
 
@@ -25,12 +25,6 @@ def main():
     vid.release()
     
     cropped_frames = MouthExtractor(FaceLandmarkerExtractor())(frames)
-
-    # Display the frames with landmarks
-    for frame in cropped_frames:
-        cv2.imshow("frame", frame)
-        if cv2.waitKey(1000//30) & 0xFF == ord('q'):
-            break
 
 
 if __name__ == "__main__":
