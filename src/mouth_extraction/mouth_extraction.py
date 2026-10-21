@@ -2,6 +2,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
 
 BASE_DIR = Path(__file__).resolve().parent
 MEAN_FACE_PATH = BASE_DIR / "models" / "20words_mean_face.npy"
@@ -34,7 +35,7 @@ class MouthExtractor:
         )
 
         if not interpolated_landmarks:
-            return None
+            return []
 
         smoothed_landmarks = self.smooth_landmarks(interpolated_landmarks)
 
@@ -47,8 +48,20 @@ class MouthExtractor:
         )
 
         # TODO: Don't send when dont speek
+        
+        
+        # for f in cropped_mouth_frames:
+        #     cv2.imshow("Cropped Mouth", f)
+        #     cv2.waitKey(0)
+            
+        normalized_cropped_mouth_frames = (
+            torch.from_numpy(np.stack(cropped_mouth_frames)).unsqueeze(1).float()
+        )
+        normalized_cropped_mouth_frames = (
+            normalized_cropped_mouth_frames / 255.0 - 0.421
+        ) / 0.165
 
-        return cropped_mouth_frames
+        return normalized_cropped_mouth_frames
 
     def interpolate_landmarks(self, landmarks, last_valid_landmark=None):
 
