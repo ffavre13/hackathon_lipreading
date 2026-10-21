@@ -9,7 +9,6 @@ def _(mo):
     mo.md(r"""
     https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/python#live-stream_1
     """)
-    return
 
 
 @app.cell
@@ -21,14 +20,9 @@ def _():
 
 @app.cell
 def _():
-    import mediapipe as mp
-    from mediapipe.tasks import python
-    from mediapipe.tasks.python import vision
+
     import cv2
-    import numpy as np
-    from mediapipe.tasks.python.vision import drawing_utils
-    from mediapipe.tasks.python.vision import drawing_styles
-    import time
+    import mediapipe as mp
 
     return cv2, mp
 
@@ -54,7 +48,6 @@ def _(cam, cv2, model_path, mp):
     FaceLandmarker = mp.tasks.vision.FaceLandmarker
     FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
     VisionRunningMode = mp.tasks.vision.RunningMode
-
 
     options = FaceLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=model_path),
@@ -88,7 +81,6 @@ def _(cam, cv2, model_path, mp):
 
     cam.release()
     cv2.destroyAllWindows()
-    return
 
 
 if __name__ == "__main__":
