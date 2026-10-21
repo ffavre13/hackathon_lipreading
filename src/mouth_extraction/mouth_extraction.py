@@ -15,8 +15,8 @@ class MouthExtractor:
         face_landmarker_extractor,
         smooth_window_size=15,
         mean_face_path=str(MEAN_FACE_PATH),
-        crop_width=96,
-        crop_height=96,
+        crop_width=88,
+        crop_height=88,
     ):
         self.face_landmarker_extractor = face_landmarker_extractor
         self.smooth_window_size = smooth_window_size
