@@ -10,7 +10,7 @@ import kenlm
 #     local_dir="models",
 # )
 
-model_path = "models/lm_5gram_big.bin"
+model_path = "src/stabilizer/models/lm_5gram_big.bin"
 model = kenlm.Model(model_path)
 
 score = [
