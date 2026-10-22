@@ -44,10 +44,12 @@ def main(source=0):
 
     llm_stabilized_thread = None
 
-    def read_stream(source, batch_size=60, overlap=15):
+    def read_stream(source, batch_size=75, overlap=15):
         nonlocal stop_recording
 
         vid = cv2.VideoCapture(source)
+        extractor.set_fps(vid.get(cv2.CAP_PROP_FPS))
+
         frames = []
 
         num_frames = 0
@@ -156,4 +158,4 @@ def main(source=0):
 
 if __name__ == "__main__":
     # main()
-    main(str(BASE_DIR / "inputs" / "Green Screen Sample Panasonic HMC150.mp4"))
+    main(str(BASE_DIR / "inputs" / "test.mp4"))
