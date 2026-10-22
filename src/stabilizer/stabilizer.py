@@ -24,39 +24,51 @@ class Segment(BaseModel):
 class Segments(BaseModel):
     segments: list[Segment]
 
-
 PROMPT = """Tu reçois la transcription d'une lecture labiale en anglais, découpée en segments horodatés (JSON).
-Corrige l'orthographe et la grammaire, et ajoute la ponctuation (majuscules, virgules, points).
+Les segments sont des morceaux consécutifs d'un même texte continu : une phrase peut commencer dans un segment et se terminer dans un autre.
+
+Ta tâche :
+1. Supprimer les doublons dus au chevauchement (PRIORITAIRE).
+2. Corriger l'orthographe et la grammaire.
+3. Ajouter la ponctuation et les majuscules, en pensant au texte complet obtenu en mettant les segments bout à bout.
+4. Corriger les erreurs de transcription si nécessaire, mais uniquement si tu es sûr à 100% de la correction. Ne change pas le sens du texte.
+
+Méthode pour les doublons :
+Les segments se chevauchent : la fin d'un segment est souvent répétée au début du suivant.
+Pour chaque paire de segments consécutifs, compare les 1 à 4 derniers mots du premier avec les 1 à 4 premiers mots du second.
+S'ils sont identiques, supprime-les du début du second segment. Ça peut concerner plusieurs mots d'un coup (par exemple "GO TO THE").
+Si un segment ne contient plus rien après suppression, renvoie-le avec "text": "".
+Supprimer ces doublons n'est pas modifier le contenu : c'est obligatoire.
 
 Règles :
-- Renvoie exactement les mêmes segments, dans le même ordre, avec les mêmes start_time.
+- Renvoie tous les segments, dans le même ordre, avec les mêmes start_time.
 - Ne fusionne pas et ne découpe pas les segments : modifie uniquement "text".
-- Les segments se chevauchent légèrement : si un mot est répété à la fin d'un segment et au début du suivant, supprime le doublon.
-- N'invente pas de contenu.
+- Réponds uniquement avec du JSON, au même format que l'exemple de sortie.
 
-Exemple d'entrée (JSON) :
+Exemple d'entrée :
 {
     "segments": [
-        {"start_time": 0, "text": "HELLO HOW ARE YOU"},
-        {"start_time": 1000, "text": "I AM FINE THANK YOU"},
-        {"start_time": 2000, "text": "AND YOU"},
-        {"start_time": 3000, "text": "I AM GOOD TOO"}
+        {"start_time": 0, "text": "I THINK WE SHOULD GO TO THE"},
+        {"start_time": 1000, "text": "TO THE BEACH TOMORROW MORNING"},
+        {"start_time": 2000, "text": "MORNING IF THE WEATHER IS"},
+        {"start_time": 3000, "text": "WEATHER IS"},
+        {"start_time": 4000, "text": "NICE WHAT DO YOU THINK"}
     ]
 }
 
-Exemple de sortie (JSON) :
+Exemple de sortie :
 {
     "segments": [
-        {"start_time": 0, "text": "Hello, how are you?"},
-        {"start_time": 1000, "text": "I am fine, thank you."},
-        {"start_time": 2000, "text": "And you?"},
-        {"start_time": 3000, "text": "I am good too."}
+        {"start_time": 0, "text": "I think we should go to the"},
+        {"start_time": 1000, "text": "beach tomorrow morning"},
+        {"start_time": 2000, "text": "if the weather is"},
+        {"start_time": 3000, "text": ""},
+        {"start_time": 4000, "text": "nice. What do you think?"}
     ]
 }
 
 Segments :
 """
-
 
 class SentenceStabilizer:
     def __init__(
