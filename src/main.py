@@ -1,49 +1,159 @@
+import os
+import queue
+import threading
 from pathlib import Path
 
 import cv2
-import numpy as np
-import torch
+from dotenv import load_dotenv
+from ollama import Client
 
 from mouth_extraction.face_landmarker_extraction import FaceLandmarkerExtractor
 from mouth_extraction.mouth_extraction import MouthExtractor
+from stabilizer.stabilizer import SentenceStabilizer
 from vsr import AutoVSR
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / ".env")
+api_key = os.getenv("OLLAMA_API")
 
-def main():
+try:
+    client = Client(
+        host="https://ollama.com",
+        headers={"Authorization": "Bearer " + str(api_key)},
+    )
+except Exception as e:
+    print(f"Error creating Ollama clienty: {e}")
 
-    video_path = BASE_DIR / "inputs" / "Green Screen Sample Panasonic HMC150.mp4"
 
-    vid = cv2.VideoCapture(str(video_path))
-    frames = []
+def main(source=0):
+    queue_capture = queue.Queue()
+    queue_process = queue.Queue()
+    queue_predict = queue.Queue()
 
-    while vid.isOpened():
-        ret, frame = vid.read()
+    LLM_BATCH_THRESHOLD = 25
 
-        if not ret:
-            break
+    stop_recording = False
 
-        frames.append(frame)
+    extractor = MouthExtractor(FaceLandmarkerExtractor())
+    model = AutoVSR(
+        str(BASE_DIR / "src" / "vsr" / "models" / "vsr_trlrs2lrs3vox2avsp_base.pth"),
+        device="cpu",
+    )
+    stabilizer = SentenceStabilizer()
 
-    vid.release()
+    llm_stabilized_thread = None
 
-    cropped_frames = MouthExtractor(FaceLandmarkerExtractor())(frames)
+    def read_stream(source, batch_size=60, overlap=15):
+        nonlocal stop_recording
 
-    video = torch.from_numpy(np.stack(cropped_frames)).unsqueeze(1).float()
-    video = (video / 255.0 - 0.421) / 0.165
+        vid = cv2.VideoCapture(source)
+        frames = []
 
-    model = AutoVSR("./vsr_models/vsr_trlrs3_base.pth", device="cpu")
+        num_frames = 0
+        current_start_frame = 0
 
-    # Tenseur fourni par votre pipeline existante : (T, 1, 88, 88).uv
-    # video = torch.load("clip_prepare.pt", map_location="cpu", weights_only=True)
-    results = model.predict(video, k=5)
+        while vid.isOpened() and not stop_recording:
+            ret, frame = vid.read()
 
-    for result in results:
-        print(result["rank"], result["text"], result["score"])
+            if not ret:
+                break
 
-    ##### TODO : PARTIE A AJOUTER POUR GERER LES RESULTATS
+            frames.append(frame)
+
+            num_frames += 1
+
+            if len(frames) == batch_size:
+                # print("Sending batch of frames to queue_capture")
+                queue_capture.put((current_start_frame, frames.copy(), False))
+                frames = frames[batch_size - overlap :]
+                current_start_frame = num_frames - overlap
+
+        vid.release()
+        # Start time, frame, is_last_batch
+        queue_capture.put((current_start_frame, frames.copy(), True))
+
+    def process_frames():
+        stop_capture = False
+
+        while not stop_capture:
+            start_frame, frames, stop_capture = queue_capture.get()
+            # print("Cropping frames from queue_capture")
+            cropped_frames = extractor(frames)
+
+            if len(cropped_frames) == 0 and not stop_capture:
+                continue
+
+            queue_process.put((start_frame, cropped_frames, stop_capture))
+
+    def predict_frames():
+        stop_process = False
+
+        while not stop_process:
+            start_frame, cropped_frames, stop_process = queue_process.get()
+            # print("Predicting on cropped frames from queue_process")
+            results = model.predict(cropped_frames, k=5)
+
+            # print(results)
+
+            queue_predict.put((start_frame, results, stop_process))
+
+    def stabilize_predictions():
+        nonlocal llm_stabilized_thread
+
+        stop_predict = False
+
+        while not stop_predict:
+            start_frame, results, stop_predict = queue_predict.get()
+            # print("Stabilizing predictions from queue_predict")
+            current_phrase = stabilizer(start_frame, results)
+            print(current_phrase)
+
+            llm_thread_busy = (
+                llm_stabilized_thread is not None and llm_stabilized_thread.is_alive()
+            )
+            if (
+                not llm_thread_busy
+                and len(stabilizer.stabilized_phrases) % LLM_BATCH_THRESHOLD == 0
+            ):
+                llm_stabilized_thread = threading.Thread(
+                    target=stabilizer.llm_stabilize,
+                    args=(client,),
+                )
+                llm_stabilized_thread.start()
+
+    read_thread = threading.Thread(target=read_stream, args=(source,))
+    process_thread = threading.Thread(target=process_frames)
+    predict_thread = threading.Thread(target=predict_frames)
+    stabilize_thread = threading.Thread(target=stabilize_predictions)
+
+    read_thread.start()
+    process_thread.start()
+    predict_thread.start()
+    stabilize_thread.start()
+
+    if source == 0:
+        input("Press Enter to stop recording...")
+        stop_recording = True
+
+    read_thread.join()
+    process_thread.join()
+    predict_thread.join()
+    stabilize_thread.join()
+
+    if llm_stabilized_thread is not None:
+        llm_stabilized_thread.join()
+
+    llm_stabilized_thread = threading.Thread(
+        target=stabilizer.llm_stabilize,
+        args=(client,True),
+    )
+    llm_stabilized_thread.start()
+    llm_stabilized_thread.join()
+    
+    print("Final stabilized phrase:", stabilizer.get_phrases_text())
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    main(str(BASE_DIR / "inputs" / "Green Screen Sample Panasonic HMC150.mp4"))

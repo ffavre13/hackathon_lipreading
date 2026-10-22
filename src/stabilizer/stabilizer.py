@@ -1,180 +1,185 @@
 import itertools
+import json
 from pathlib import Path
 
 import kenlm
+from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent
 
+
 # https://huggingface.co/hugohow/5gram-french-kenLM
+
 
 # model_download = hf_hub_download(
 #     repo_id="hugohow/5gram-french-kenLM",
 #     filename="lm_5gram_big.bin",
 #     local_dir="models",
 # )
-
-model_path = BASE_DIR / "models" / "lm_5gram_big.bin"
-model = kenlm.Model(str(model_path))
-
-score = [()]
+class Segment(BaseModel):
+    start_time: int
+    text: str
 
 
-def get_sentence(current_batch, current_phrase, batch_history, max_history=3):
-    if len(batch_history) == 0:
-        batch_history.append(current_batch)
-        return current_batch[0][0], batch_history
+class Segments(BaseModel):
+    segments: list[Segment]
 
-    if len(batch_history) == 1:
-        phrase = batch2_score(batch_history[0], current_batch, current_phrase)
-        batch_history.append(current_batch)
-        return phrase, batch_history
+PROMPT = """Tu reçois la transcription d'une lecture labiale en anglais, découpée en segments horodatés (JSON).
+Les segments sont des morceaux consécutifs d'un même texte continu : une phrase peut commencer dans un segment et se terminer dans un autre.
 
-    if current_batch[0][2] == True:
-        phrase = give_score(
-            batch_history[-2], batch_history[-1], current_batch, current_phrase
-        )
-        temp_phrase = remove_dupe(current_phrase, phrase)
-        batch_history.append(current_batch)
+Ta tâche :
+1. Supprimer les doublons dus au chevauchement (PRIORITAIRE).
+2. Corriger l'orthographe et la grammaire.
+3. Ajouter la ponctuation et les majuscules, en pensant au texte complet obtenu en mettant les segments bout à bout.
+4. Corriger les erreurs de transcription si nécessaire, mais uniquement si tu es sûr à 100% de la correction. Ne change pas le sens du texte.
 
-        last = last_batch(batch_history[-2:], temp_phrase)
-        final_phrase = remove_dupe(phrase, last)
+Méthode pour les doublons :
+Les segments se chevauchent : la fin d'un segment est souvent répétée au début du suivant.
+Pour chaque paire de segments consécutifs, compare les 1 à 4 derniers mots du premier avec les 1 à 4 premiers mots du second.
+S'ils sont identiques, supprime-les du début du second segment. Ça peut concerner plusieurs mots d'un coup (par exemple "GO TO THE").
+Si un segment ne contient plus rien après suppression, renvoie-le avec "text": "".
+Supprimer ces doublons n'est pas modifier le contenu : c'est obligatoire.
 
-        return final_phrase, batch_history
+Règles :
+- Renvoie tous les segments, dans le même ordre, avec les mêmes start_time.
+- Ne fusionne pas et ne découpe pas les segments : modifie uniquement "text".
+- Réponds uniquement avec du JSON, au même format que l'exemple de sortie.
 
-    if len(batch_history) >= max_history:
-        batch_history.pop(0)
+Exemple d'entrée :
+{
+    "segments": [
+        {"start_time": 0, "text": "I THINK WE SHOULD GO TO THE"},
+        {"start_time": 1000, "text": "TO THE BEACH TOMORROW MORNING"},
+        {"start_time": 2000, "text": "MORNING IF THE WEATHER IS"},
+        {"start_time": 3000, "text": "WEATHER IS"},
+        {"start_time": 4000, "text": "NICE WHAT DO YOU THINK"}
+    ]
+}
 
-    batch_list = batch_history[-2:]
-    phrase = give_score(batch_list[0], batch_list[1], current_batch, current_phrase)
-    batch_history.append(current_batch)
-    return phrase, batch_history
+Exemple de sortie :
+{
+    "segments": [
+        {"start_time": 0, "text": "I think we should go to the"},
+        {"start_time": 1000, "text": "beach tomorrow morning"},
+        {"start_time": 2000, "text": "if the weather is"},
+        {"start_time": 3000, "text": ""},
+        {"start_time": 4000, "text": "nice. What do you think?"}
+    ]
+}
 
+Segments :
+"""
 
-def last_batch(batch_history, current_phrase):
-    best_score = -10000
-    best_word = ""
-
-    if len(batch_history) == 2:
-        for (f1, s1, _), (f2, s2, _) in itertools.product(
-            batch_history[0], batch_history[1]
-        ):
-            temp_phrase = remove_dupe(current_phrase, f1)
-            temp_phrase = remove_dupe(temp_phrase, f2)
-            total_score = s1 + s2 + model.score(temp_phrase)
-            if total_score > best_score:
-                best_score = total_score
-                best_word = remove_dupe(f1, f2)
-
-    elif len(batch_history) == 1:
-        for f1, s1, _ in batch_history[0]:
-            temp_phrase = remove_dupe(current_phrase, f1)
-            total_score = s1 + model.score(temp_phrase)
-            if total_score > best_score:
-                best_score = total_score
-                best_word = f1
-
-    return best_word
-
-
-def batch2_score(list1, list2, current_phrase):
-    best_score = -10000
-    best_phrase = ""
-    word_f1 = list1[0][0]
-
-    for (f1, score_f1, _), (f2, score_f2, _) in itertools.product(list1, list2):
-        temp_phrase = remove_dupe(current_phrase, f1)
-        temp_phrase = remove_dupe(temp_phrase, f2)
-
-        score = model.score(temp_phrase)
-
-        total_score = score_f1 + score_f2 + score
-
-        if total_score > best_score:
-            best_score = total_score
-            best_phrase = temp_phrase
-            word_f1 = f1
-
-    # print(f"Best sentence: {best_phrase}, Score: {best_score}")
-    return word_f1
-
-
-def remove_dupe(seq1, seq2):
-    w1, w2 = seq1.split(), seq2.split()
-
-    max_overlap = min(len(w1), len(w2))
-    for i in range(max_overlap, 0, -1):
-        if w1[-i:] == w2[:i]:
-            return " ".join(w1 + w2[i:])
-
-    return " ".join(w1 + w2)
-
-
-def give_score(list1, list2, list3, current_phrase):
-    best_score = -10000
-    best_phrase = ""
-    word_f1 = list1[0][0]
-
-    for (f1, score_f1, _), (f2, score_f2, _), (f3, score_f3, _) in itertools.product(
-        list1, list2, list3
+class SentenceStabilizer:
+    def __init__(
+        self,
+        model_path=str(BASE_DIR / "models" / "lm_5gram_big.bin"),
+        max_history=3,
+        llm_override=3,
     ):
-        temp_phrase = remove_dupe(current_phrase, f1)
-        temp_phrase = remove_dupe(temp_phrase, f2)
-        temp_phrase = remove_dupe(temp_phrase, f3)
+        self.model = kenlm.Model(model_path)
+        self.batch_history = []
+        self.stabilized_phrases = []  # [(Start time, Phrase)]
+        self.max_history = max_history
+        self.llm_last_index = 0
+        self.llm_override = llm_override
 
-        score = model.score(temp_phrase)
+    def __call__(self, start_time, current_batch):
+        return self.get_sentence(start_time, current_batch)
 
-        total_score = score_f1 + score_f2 + score_f3 + score
+    def get_sentence(self, start_time, current_batch):
+        current_batch_with_time = [
+            item | {"start_time": start_time} for item in current_batch
+        ]
 
-        if total_score > best_score:
-            best_score = total_score
-            best_phrase = temp_phrase
-            word_f1 = f1
+        if len(current_batch) == 0:
+            return ""
 
-    # print(f"Best sentence: {best_phrase}, Score: {best_score}")
-    return word_f1
+        if len(self.batch_history) == 0:
+            self.batch_history.append(current_batch_with_time)
+            self.stabilized_phrases.append((start_time, current_batch[0]["text"]))
+            return current_batch[0]["text"]
 
+        self.batch_history.append(current_batch_with_time)
+        self.stabilized_phrases.append((start_time, current_batch[0]["text"]))
 
-def sentence_limit(sentence, limit=100):
-    words = sentence.split()
-    diff = len(words) - limit
-    if diff > 0:
-        sentence = " ".join(words[diff:])
-    return sentence
+        self.give_score()
 
+        return self.stabilized_phrases[-1][1]
 
-def fill_batch():
-    list_batch = score
+    def get_phrases_text(self):
+        return " ".join([p[1] for p in self.stabilized_phrases])
 
+    def give_score(self):
+        best_score = -10000
+        best_phrase = []
 
-best_phrase = ""
-batch_history = []
+        for context in itertools.product(*self.batch_history[-self.max_history :]):
+            tmp_phrase = ""
+            score = 0
+            for item in context:
+                tmp_phrase += item["text"] + " "
+                score += item["score"]
 
-for batch in score:
-    phrase, batch_history = get_sentence(batch, best_phrase, batch_history)
-    best_phrase = remove_dupe(best_phrase, phrase)
+            score += self.model.score(tmp_phrase.strip())
 
-    display_phrase = remove_dupe(best_phrase, batch[0][0])
+            if score > best_score:
+                best_score = score
+                best_phrase = context
 
-print(display_phrase)
+        self.stabilized_phrases[-self.max_history :] = [
+            (item["start_time"], item["text"]) for item in best_phrase
+        ]
 
-# api_key = os.getenv("OLLAMA_API")
+    def parse_llm_segments(self, content):
+        content = content[content.find("[") : content.rfind("]") + 1]
+        return [
+            {"start_time": item["start_time"], "text": item["text"]}
+            for item in json.loads(content)
+        ]
 
-# client = Client(
-#     host="http://localhost:11434",
-#     headers={"Authorization": f"Bearer {api_key}"},
-# )
+    def llm_stabilize(self, client, last=False):
+        limit = 0 if last else self.max_history
 
-# stream = client.chat(
-#     model="gemma4:cloud",
-#     messages=[
-#         {
-#             "role": "user",
-#             "content": "Corrige la phrase suivante si nécessaire et renvoie seulement la phrase corrigée : "
-#             + best_phrase,
-#         },
-#     ],
-#     stream=True,
-# )
+        llm_new_index = len(self.stabilized_phrases) - limit
 
-# for chunk in stream:
-#     print(chunk["message"]["content"], end="")
+        if len(self.stabilized_phrases) - limit <= 0:
+            return
+
+        stabilized_phrases_to_send = self.stabilized_phrases[
+            self.llm_last_index : llm_new_index
+        ]
+
+        if len(stabilized_phrases_to_send) == 0:
+            return
+
+        stabilized_phrases_to_send = [
+            {"start_time": start_time, "text": text}
+            for start_time, text in stabilized_phrases_to_send
+        ]
+
+        try:
+            response = client.chat(
+                model="gemma4",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": PROMPT
+                        + json.dumps(stabilized_phrases_to_send, ensure_ascii=False),
+                    }
+                ],
+                format=Segments.model_json_schema(),
+                options={"temperature": 0},
+            )
+            corrected = self.parse_llm_segments(response.message.content)
+        except Exception as e:
+            print(f"[LLM] erreur : {e}")
+            return
+
+        for i, j in enumerate(range(self.llm_last_index, llm_new_index)):
+            self.stabilized_phrases[j] = (
+                corrected[i]["start_time"],
+                corrected[i]["text"],
+            )
+
+        self.llm_last_index = max(0, llm_new_index - self.llm_override)
