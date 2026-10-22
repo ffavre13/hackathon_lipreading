@@ -15,5 +15,6 @@ dependencies = [
     "streamlit>=1.66.0",
     "youtube-transcript-api>=1.2.4",
     "ollama>=0.6.3",
+    "python-dotenv>=1.2.4",
 ]
     

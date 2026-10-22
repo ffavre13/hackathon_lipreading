@@ -1,8 +1,11 @@
+import os
 import queue
 import threading
 from pathlib import Path
 
 import cv2
+from dotenv import load_dotenv
+from ollama import Client
 
 from mouth_extraction.face_landmarker_extraction import FaceLandmarkerExtractor
 from mouth_extraction.mouth_extraction import MouthExtractor
@@ -11,11 +14,24 @@ from vsr import AutoVSR
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / ".env")
+api_key = os.getenv("OLLAMA_API")
+
+try:
+    client = Client(
+        host="https://ollama.com",
+        headers={"Authorization": "Bearer " + str(api_key)},
+    )
+except Exception as e:
+    print(f"Error creating Ollama clienty: {e}")
+
 
 def main(source=0):
     queue_capture = queue.Queue()
     queue_process = queue.Queue()
     queue_predict = queue.Queue()
+
+    LLM_BATCH_THRESHOLD = 25
 
     stop_recording = False
 
@@ -25,6 +41,8 @@ def main(source=0):
         device="cpu",
     )
     stabilizer = SentenceStabilizer()
+
+    llm_stabilized_thread = None
 
     def read_stream(source, batch_size=60, overlap=15):
         nonlocal stop_recording
@@ -81,13 +99,28 @@ def main(source=0):
             queue_predict.put((start_frame, results, stop_process))
 
     def stabilize_predictions():
+        nonlocal llm_stabilized_thread
+
         stop_predict = False
 
         while not stop_predict:
             start_frame, results, stop_predict = queue_predict.get()
             # print("Stabilizing predictions from queue_predict")
             current_phrase = stabilizer(start_frame, results)
-            # print(current_phrase)
+            print(current_phrase)
+
+            llm_thread_busy = (
+                llm_stabilized_thread is not None and llm_stabilized_thread.is_alive()
+            )
+            if (
+                not llm_thread_busy
+                and len(stabilizer.stabilized_phrases) % LLM_BATCH_THRESHOLD == 0
+            ):
+                llm_stabilized_thread = threading.Thread(
+                    target=stabilizer.llm_stabilize,
+                    args=(client,),
+                )
+                llm_stabilized_thread.start()
 
     read_thread = threading.Thread(target=read_stream, args=(source,))
     process_thread = threading.Thread(target=process_frames)
@@ -108,9 +141,19 @@ def main(source=0):
     predict_thread.join()
     stabilize_thread.join()
 
+    if llm_stabilized_thread is not None:
+        llm_stabilized_thread.join()
+
+    llm_stabilized_thread = threading.Thread(
+        target=stabilizer.llm_stabilize,
+        args=(client,True),
+    )
+    llm_stabilized_thread.start()
+    llm_stabilized_thread.join()
+    
     print("Final stabilized phrase:", stabilizer.get_phrases_text())
 
 
 if __name__ == "__main__":
-    main()
-    # main(str(BASE_DIR / "inputs" / "Sans titre.mp4"))
+    # main()
+    main(str(BASE_DIR / "inputs" / "Green Screen Sample Panasonic HMC150.mp4"))
