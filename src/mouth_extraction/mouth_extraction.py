@@ -18,12 +18,17 @@ class MouthExtractor:
         mean_face_path=str(MEAN_FACE_PATH),
         crop_width=88,
         crop_height=88,
+        fps=25
     ):
         self.face_landmarker_extractor = face_landmarker_extractor
         self.smooth_window_size = smooth_window_size
         self.mean_face = np.load(mean_face_path)
         self.crop_width = crop_width
         self.crop_height = crop_height
+        self.fps = fps
+        
+    def set_fps(self, fps):
+        self.fps = fps
 
     def __call__(self, frames, last_valid_landmark=None):
         frames = [cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) for frame in frames]
@@ -53,6 +58,8 @@ class MouthExtractor:
         # for f in cropped_mouth_frames:
         #     cv2.imshow("Cropped Mouth", f)
         #     cv2.waitKey(0)
+        
+        cropped_mouth_frames = self.resample_frames(cropped_mouth_frames)
             
         normalized_cropped_mouth_frames = (
             torch.from_numpy(np.stack(cropped_mouth_frames)).unsqueeze(1).float()
@@ -62,6 +69,13 @@ class MouthExtractor:
         ) / 0.165
 
         return normalized_cropped_mouth_frames
+
+    def resample_frames(self, frames, target_fps=25):
+        n_out = round(len(frames) * target_fps / self.fps)
+        idx = (np.arange(n_out) * self.fps / target_fps).astype(int)
+        idx = np.clip(idx, 0, len(frames) - 1)
+        return [frames[i] for i in idx]
+        
 
     def interpolate_landmarks(self, landmarks, last_valid_landmark=None):
 
