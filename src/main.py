@@ -6,6 +6,7 @@ import cv2
 
 from mouth_extraction.face_landmarker_extraction import FaceLandmarkerExtractor
 from mouth_extraction.mouth_extraction import MouthExtractor
+from stabilizer.stabilizer import SentenceStabilizer
 from vsr import AutoVSR
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,7 +20,11 @@ def main(source=0):
     stop_recording = False
 
     extractor = MouthExtractor(FaceLandmarkerExtractor())
-    model = AutoVSR("./vsr_models/vsr_trlrs3_base.pth", device="cpu")
+    model = AutoVSR(
+        str(BASE_DIR / "src" / "vsr" / "models" / "vsr_trlrs2lrs3vox2avsp_base.pth"),
+        device="cpu",
+    )
+    stabilizer = SentenceStabilizer()
 
     def read_stream(source, batch_size=60, overlap=15):
         nonlocal stop_recording
@@ -54,34 +59,45 @@ def main(source=0):
         stop_capture = False
 
         while not stop_capture:
-            next_start_frame, frames, stop_capture = queue_capture.get()
+            start_frame, frames, stop_capture = queue_capture.get()
             # print("Cropping frames from queue_capture")
             cropped_frames = extractor(frames)
-            
+
             if len(cropped_frames) == 0 and not stop_capture:
                 continue
 
-            queue_process.put((next_start_frame, cropped_frames, stop_capture))
+            queue_process.put((start_frame, cropped_frames, stop_capture))
 
     def predict_frames():
         stop_process = False
 
         while not stop_process:
-            next_start_frame, cropped_frames, stop_process = queue_process.get()
+            start_frame, cropped_frames, stop_process = queue_process.get()
             # print("Predicting on cropped frames from queue_process")
             results = model.predict(cropped_frames, k=5)
 
-            print(results[0]["text"])
+            # print(results)
 
-            queue_predict.put((next_start_frame, results, stop_process))
+            queue_predict.put((start_frame, results, stop_process))
+
+    def stabilize_predictions():
+        stop_predict = False
+
+        while not stop_predict:
+            start_frame, results, stop_predict = queue_predict.get()
+            # print("Stabilizing predictions from queue_predict")
+            current_phrase = stabilizer(start_frame, results)
+            # print(current_phrase)
 
     read_thread = threading.Thread(target=read_stream, args=(source,))
     process_thread = threading.Thread(target=process_frames)
     predict_thread = threading.Thread(target=predict_frames)
+    stabilize_thread = threading.Thread(target=stabilize_predictions)
 
     read_thread.start()
     process_thread.start()
     predict_thread.start()
+    stabilize_thread.start()
 
     if source == 0:
         input("Press Enter to stop recording...")
@@ -90,8 +106,9 @@ def main(source=0):
     read_thread.join()
     process_thread.join()
     predict_thread.join()
+    stabilize_thread.join()
 
-    ##### TODO : PARTIE A AJOUTER POUR GERER LES RESULTATS
+    print("Final stabilized phrase:", stabilizer.get_phrases_text())
 
 
 if __name__ == "__main__":
