@@ -50,16 +50,17 @@ class MouthExtractor:
 
         cropped_mouth_frames = self.crop_mouth(
             frames_affine_transformed, landmarks_affine_transformed
-        )
-
-        # TODO: Don't send when dont speek
-        
+        )        
         
         # for f in cropped_mouth_frames:
         #     cv2.imshow("Cropped Mouth", f)
         #     cv2.waitKey(0)
         
-        cropped_mouth_frames = self.resample_frames(cropped_mouth_frames)
+        cropped_mouth_frames = self.remove_silent_frames(cropped_mouth_frames, interpolated_landmarks)
+        if not cropped_mouth_frames:
+            return []
+        
+        cropped_mouth_frames = self.resample_frames(cropped_mouth_frames)            
             
         normalized_cropped_mouth_frames = (
             torch.from_numpy(np.stack(cropped_mouth_frames)).unsqueeze(1).float()
@@ -69,6 +70,22 @@ class MouthExtractor:
         ) / 0.165
 
         return normalized_cropped_mouth_frames
+    
+    def remove_silent_frames(self, frames, landmarks, threshold=0.04, min_silence=0.5):
+        min_len = round(min_silence * self.fps)
+
+        closed = [np.linalg.norm(l[4] - l[5]) / np.linalg.norm(l[0] - l[1]) < threshold for l in landmarks]
+
+        kept = []
+        i = 0
+        while i < len(frames):
+            j = i
+            while j < len(frames) and closed[j] == closed[i]:
+                j += 1
+            if not (closed[i] and j - i >= min_len):
+                kept.extend(frames[i:j])
+            i = j
+        return kept
 
     def resample_frames(self, frames, target_fps=25):
         n_out = round(len(frames) * target_fps / self.fps)
