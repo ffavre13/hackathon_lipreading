@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    image: lipreading
+    ports:
+      - "8080:8080"
+    env_file: .env
+    volumes:
+      - ./inputs:/app/inputs
+    restart: unless-stopped
