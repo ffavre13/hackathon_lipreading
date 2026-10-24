@@ -53,7 +53,7 @@ jobs:
             ${{ steps.name.outputs.leapreading_image }}:${{ github.sha }}
             ${{ steps.name.outputs.leapreading_image }}:${{ github.ref_name }}
           # One line, two architectures. It is not free: the build gets slower.
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

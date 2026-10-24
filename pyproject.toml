@@ -17,4 +17,11 @@ dependencies = [
     "python-dotenv>=1.2.4",
     "streamlit-webrtc>=0.79.0",
 ]
-    
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

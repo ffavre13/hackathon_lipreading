@@ -11,7 +11,7 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY uv.lock .
 
-RUN uv sync --frozen
+RUN uv sync --frozen --no-cache
 COPY inputs inputs
 COPY src src
 
