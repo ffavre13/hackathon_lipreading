@@ -28,7 +28,7 @@ class AutoVSR:
         model_path: str | Path,
         *,
         device: str | torch.device = "cpu",
-        beam_size: int = 40,
+        beam_size: int = 5,
         ctc_weight: float = 0.1,
         vocabulary_path: str | Path = DEFAULT_VOCABULARY,
     ):

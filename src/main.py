@@ -27,9 +27,9 @@ except Exception as e:
 
 
 def main(source=0):
-    queue_capture = queue.Queue()
-    queue_process = queue.Queue()
-    queue_predict = queue.Queue()
+    queue_capture = queue.Queue(maxsize=2)
+    queue_process = queue.Queue(maxsize=2)
+    queue_predict = queue.Queue(maxsize=2)
 
     LLM_BATCH_THRESHOLD = 25
 
@@ -94,6 +94,11 @@ def main(source=0):
         while not stop_process:
             start_frame, cropped_frames, stop_process = queue_process.get()
             # print("Predicting on cropped frames from queue_process")
+            
+            if len(cropped_frames) == 0:
+                queue_predict.put((start_frame, None, stop_process))
+                continue
+            
             results = model.predict(cropped_frames, k=5)
 
             # print(results)
@@ -108,8 +113,10 @@ def main(source=0):
         while not stop_predict:
             start_frame, results, stop_predict = queue_predict.get()
             # print("Stabilizing predictions from queue_predict")
-            current_phrase = stabilizer(start_frame, results)
-            print(current_phrase)
+            
+            if results is not None:
+                current_phrase = stabilizer(start_frame, results)
+                print(current_phrase)
 
             llm_thread_busy = (
                 llm_stabilized_thread is not None and llm_stabilized_thread.is_alive()
