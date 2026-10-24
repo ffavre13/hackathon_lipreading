@@ -33,7 +33,7 @@ def display(process, text_elem, frame_elem=None, save_key=None):
             frame_elem.image(process["latest"]["frame"], channels="BGR")
         if phrase is not None:
             text_elem.write(phrase)
-        time.sleep(0.02)
+        time.sleep(0.05)
 
     phrase = process["latest"]["phrase"] or ""
     text_elem.write(phrase)
@@ -41,7 +41,7 @@ def display(process, text_elem, frame_elem=None, save_key=None):
 
 st.title("Lip reading")
 
-tab1, tab2, tab3 = st.tabs(["Camera", "Video", "Youtube"])
+tab1, tab2 = st.tabs(["Camera", "Video"])
 
 with tab1:
     run = st.toggle("Activate camera", value=False)
