@@ -26,14 +26,14 @@ except Exception as e:
     print(f"Error creating Ollama clienty: {e}")
 
 
-def main(source=0):
+def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
+    stop_event = stop_event or threading.Event()
+    
     queue_capture = queue.Queue(maxsize=2)
     queue_process = queue.Queue(maxsize=2)
     queue_predict = queue.Queue(maxsize=2)
 
-    LLM_BATCH_THRESHOLD = 25
-
-    stop_recording = False
+    LLM_BATCH_THRESHOLD = 10
 
     extractor = MouthExtractor(FaceLandmarkerExtractor())
     model = AutoVSR(
@@ -45,7 +45,6 @@ def main(source=0):
     llm_stabilized_thread = None
 
     def read_stream(source, batch_size=75, overlap=15):
-        nonlocal stop_recording
 
         vid = cv2.VideoCapture(source)
         extractor.set_fps(vid.get(cv2.CAP_PROP_FPS))
@@ -55,11 +54,14 @@ def main(source=0):
         num_frames = 0
         current_start_frame = 0
 
-        while vid.isOpened() and not stop_recording:
+        while vid.isOpened() and not stop_event.is_set():
             ret, frame = vid.read()
 
             if not ret:
                 break
+
+            if on_frame:
+                on_frame(frame)
 
             frames.append(frame)
 
@@ -116,7 +118,7 @@ def main(source=0):
             
             if results is not None:
                 current_phrase = stabilizer(start_frame, results)
-                print(current_phrase)
+                on_phrase(stabilizer.get_phrases_text())
 
             llm_thread_busy = (
                 llm_stabilized_thread is not None and llm_stabilized_thread.is_alive()
@@ -141,10 +143,6 @@ def main(source=0):
     predict_thread.start()
     stabilize_thread.start()
 
-    if source == 0:
-        input("Press Enter to stop recording...")
-        stop_recording = True
-
     read_thread.join()
     process_thread.join()
     predict_thread.join()
@@ -160,9 +158,13 @@ def main(source=0):
     llm_stabilized_thread.start()
     llm_stabilized_thread.join()
     
-    print("Final stabilized phrase:", stabilizer.get_phrases_text())
-
+    on_phrase(stabilizer.get_phrases_text())
 
 if __name__ == "__main__":
-    # main()
-    main(str(BASE_DIR / "inputs" / "test.mp4"))
+    stop = threading.Event()
+    # t = threading.Thread(target=main, kwargs={"source": str(BASE_DIR / "inputs" / "test.mp4"), "stop_event": stop})
+    t = threading.Thread(target=main, kwargs={"stop_event": stop})
+    t.start()
+    input("Press Enter to stop recording...")
+    stop.set()
+    t.join()
