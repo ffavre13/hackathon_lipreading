@@ -6,6 +6,9 @@ import streamlit as st
 
 from main import main
 
+from streamlit_webrtc import webrtc_streamer
+
+from browser_capture import BrowserCapture
 
 def start_pipeline(source):
     latest = {"frame": None, "phrase": None}
@@ -44,25 +47,48 @@ st.title("Lip reading")
 tab1, tab2 = st.tabs(["Camera", "Video"])
 
 with tab1:
-    run = st.toggle("Activate camera", value=False)
-    frame_elem = st.empty()
-    st.write("Camera feed:")
+    if "capture" not in st.session_state:
+        st.session_state.capture = BrowserCapture()
+    capture = st.session_state.capture
+      
+    def on_video_frame(frame):
+        capture.push(frame.to_ndarray(format="bgr24"))
+        return frame
+
+    ctx = webrtc_streamer(
+        key="cam",
+        video_frame_callback=on_video_frame,
+        media_stream_constraints={"video": True, "audio": False},
+    )
+
     text_elem = st.empty()
     text_elem.write(st.session_state.get("cam_text", ""))
 
-    if run:
+    if ctx.state.playing:
+        capture.opened = True
         text_elem.write("Waiting for camera...")
-        process = start_pipeline(0)
-        st.session_state.cam = process
-
+        st.session_state.process = start_pipeline(capture)
+        process = st.session_state.process
         try:
-            display(process, text_elem, frame_elem, save_key="cam_text")
+            while ctx.state.playing and process["thread"].is_alive():
+                phrase = process["latest"]["phrase"]
+                if phrase:
+                    st.session_state.cam_text = phrase
+                    text_elem.write(phrase)
+                time.sleep(0.05)
         finally:
+            capture.release()
             process["stop"].set()
-    elif "cam" in st.session_state:
-        display(st.session_state.pop("cam"), text_elem, save_key="cam_text")
-
-
+            
+    elif "process" in st.session_state:
+        process = st.session_state.pop("process")
+        while process["thread"].is_alive():
+            phrase = process["latest"]["phrase"]
+            if phrase:
+                st.session_state.cam_text = phrase
+                text_elem.write(phrase)
+            time.sleep(0.05)
+        
 with tab2:
     st.write("Video")
 

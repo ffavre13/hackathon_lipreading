@@ -46,7 +46,8 @@ def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
 
     def read_stream(source, batch_size=75, overlap=15):
 
-        vid = cv2.VideoCapture(source)
+        # vid = cv2.VideoCapture(source)
+        vid = source if hasattr(source, "read") else cv2.VideoCapture(source)
         extractor.set_fps(vid.get(cv2.CAP_PROP_FPS))
 
         frames = []
@@ -59,6 +60,9 @@ def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
 
             if not ret:
                 break
+            
+            if frame is None:
+                continue
 
             if on_frame:
                 on_frame(frame)
