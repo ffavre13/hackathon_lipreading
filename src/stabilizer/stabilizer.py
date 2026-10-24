@@ -24,6 +24,7 @@ class Segment(BaseModel):
 class Segments(BaseModel):
     segments: list[Segment]
 
+
 PROMPT = """Tu reçois la transcription d'une lecture labiale en anglais, découpée en segments horodatés (JSON).
 Les segments sont des morceaux consécutifs d'un même texte continu : une phrase peut commencer dans un segment et se terminer dans un autre.
 
@@ -70,10 +71,11 @@ Exemple de sortie :
 Segments :
 """
 
+
 class SentenceStabilizer:
     def __init__(
         self,
-        model_path=str(BASE_DIR / "models" / "lm_5gram_big.bin"),
+        model_path=str(BASE_DIR / "models" / "wiki_en_dep.arpa.bin"),
         max_history=3,
         llm_override=3,
     ):
@@ -121,7 +123,15 @@ class SentenceStabilizer:
                 tmp_phrase += item["text"] + " "
                 score += item["score"]
 
-            score += self.model.score(tmp_phrase.strip())
+            text_clean = tmp_phrase.strip().lower()
+            words = text_clean.split()
+
+            if len(words) > 0:
+                lm_score = self.model.score(text_clean) / len(words)
+            else:
+                lm_score = -100
+
+            score += lm_score
 
             if score > best_score:
                 best_score = score
