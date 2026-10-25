@@ -1,6 +1,7 @@
 import os
 import queue
 import threading
+import time
 from pathlib import Path
 
 import cv2
@@ -25,10 +26,14 @@ try:
 except Exception as e:
     print(f"Error creating Ollama clienty: {e}")
 
+process_times = []
+predict_times = []
+stabilize_times = []
+
 
 def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
     stop_event = stop_event or threading.Event()
-    
+
     queue_capture = queue.Queue(maxsize=2)
     queue_process = queue.Queue(maxsize=2)
     queue_predict = queue.Queue(maxsize=2)
@@ -44,11 +49,18 @@ def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
 
     llm_stabilized_thread = None
 
-    def read_stream(source, batch_size=75, overlap=15):
-
+    def read_stream(source, batch_seconds=3, overlap_seconds=0.5):
         # vid = cv2.VideoCapture(source)
         vid = source if hasattr(source, "read") else cv2.VideoCapture(source)
-        extractor.set_fps(vid.get(cv2.CAP_PROP_FPS))
+
+        fps = vid.get(cv2.CAP_PROP_FPS) or 0
+        if fps <= 0:
+            fps = 25.0
+
+        extractor.set_fps(fps)
+
+        batch_size = max(15, round(batch_seconds * fps))
+        overlap = min(round(overlap_seconds * fps), batch_size - 1)
 
         frames = []
 
@@ -60,7 +72,7 @@ def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
 
             if not ret:
                 break
-            
+
             if frame is None:
                 continue
 
@@ -86,12 +98,14 @@ def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
 
         while not stop_capture:
             start_frame, frames, stop_capture = queue_capture.get()
+            start_time = time.time()
             # print("Cropping frames from queue_capture")
             cropped_frames = extractor(frames)
 
             if len(cropped_frames) == 0 and not stop_capture:
                 continue
 
+            process_times.append(time.time() - start_time)
             queue_process.put((start_frame, cropped_frames, stop_capture))
 
     def predict_frames():
@@ -99,16 +113,17 @@ def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
 
         while not stop_process:
             start_frame, cropped_frames, stop_process = queue_process.get()
+            start_time = time.time()
             # print("Predicting on cropped frames from queue_process")
-            
+
             if len(cropped_frames) == 0:
                 queue_predict.put((start_frame, None, stop_process))
                 continue
-            
+
             results = model.predict(cropped_frames, k=5)
+            predict_times.append(time.time() - start_time)
 
             # print(results)
-
             queue_predict.put((start_frame, results, stop_process))
 
     def stabilize_predictions():
@@ -119,10 +134,12 @@ def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
         while not stop_predict:
             start_frame, results, stop_predict = queue_predict.get()
             # print("Stabilizing predictions from queue_predict")
-            
+
             if results is not None:
+                start_time = time.time()
                 current_phrase = stabilizer(start_frame, results)
                 on_phrase(stabilizer.get_phrases_text())
+                stabilize_times.append(time.time() - start_time)
 
             llm_thread_busy = (
                 llm_stabilized_thread is not None and llm_stabilized_thread.is_alive()
@@ -157,18 +174,84 @@ def main(source=0, on_phrase=print, on_frame=None, stop_event=None):
 
     llm_stabilized_thread = threading.Thread(
         target=stabilizer.llm_stabilize,
-        args=(client,True),
+        args=(client, True),
     )
     llm_stabilized_thread.start()
     llm_stabilized_thread.join()
-    
+
     on_phrase(stabilizer.get_phrases_text())
+
 
 if __name__ == "__main__":
     stop = threading.Event()
-    # t = threading.Thread(target=main, kwargs={"source": str(BASE_DIR / "inputs" / "test.mp4"), "stop_event": stop})
+    # t = threading.Thread(
+    #     target=main,
+    #     kwargs={"source": str(BASE_DIR / "inputs" / "test.mp4"), "stop_event": stop},
+    # )
     t = threading.Thread(target=main, kwargs={"stop_event": stop})
     t.start()
     input("Press Enter to stop recording...")
     stop.set()
     t.join()
+    
+    plot_time = False
+    
+    if plot_time:
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import seaborn as sns
+
+        plt.figure(figsize=(10, 6))
+        plt.title("Process Times Histogram")
+        sns.histplot(process_times, kde=True)
+        plt.axvline(np.mean(process_times), color="red", linestyle="--")
+        plt.text(
+            0.97,
+            0.95,
+            f"Mean = {np.mean(process_times):.2f} s",
+            transform=plt.gca().transAxes,
+            ha="right",
+            va="top",
+            fontsize=14,
+            color="red",
+        )
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Frequency")
+        plt.savefig(str(BASE_DIR / "assets" / "process_times_histogram.png"))
+
+        plt.figure(figsize=(10, 6))
+        plt.title("Predict Times Histogram")
+        sns.histplot(predict_times, kde=True)
+        plt.axvline(np.mean(predict_times), color="red", linestyle="--")
+        plt.text(
+            0.97,
+            0.95,
+            f"Mean = {np.mean(predict_times):.2f} s",
+            transform=plt.gca().transAxes,
+            ha="right",
+            va="top",
+            fontsize=14,
+            color="red",
+        )
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Frequency")
+        plt.savefig(str(BASE_DIR / "assets" / "predict_times_histogram.png"))
+
+        plt.figure(figsize=(10, 6))
+        plt.title("Stabilize Times Histogram")
+        sns.histplot(stabilize_times, kde=True)
+        plt.axvline(np.mean(stabilize_times), color="red", linestyle="--")
+        plt.text(
+            0.97,
+            0.95,
+            f"Mean = {np.mean(stabilize_times):.2f} s",
+            transform=plt.gca().transAxes,
+            ha="right",
+            va="top",
+            fontsize=14,
+            color="red",
+        )
+        plt.xlabel("Time (seconds)")
+        plt.ylabel("Frequency")
+        plt.savefig(str(BASE_DIR / "assets" / "stabilize_times_histogram.png"))
